@@ -193,7 +193,12 @@ def generate_character_shapes(
     """
     if charset is None:
         # Printable ASCII excluding space (we'll handle space specially)
-        charset = string.printable[:95]
+        # Ensure space is the first character so it's the default match for empty/black regions
+        chars = list(string.printable[:95])
+        if ' ' in chars:
+            chars.remove(' ')
+            chars.insert(0, ' ')
+        charset = "".join(chars)
 
     font = get_monospace_font(font_size)
 
