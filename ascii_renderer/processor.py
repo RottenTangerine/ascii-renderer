@@ -29,13 +29,19 @@ def rgb_to_luminance(r: float, g: float, b: float) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-def load_image_as_luminance(path: str) -> np.ndarray:
+def load_image_as_luminance(path: str, background_value: float = 0.0) -> np.ndarray:
     """
     Load an image and convert to luminance array.
+    
+    Args:
+        path: Path to image file.
+        background_value: Value to use for transparent pixels (0.0-1.0).
+                         Use 0.0 for black background, 1.0 for white.
 
-    Returns array of shape (height, width) with values 0.0-1.0.
+    Returns:
+        Array of shape (height, width) with values 0.0-1.0.
     """
-    img = Image.open(path).convert("RGB")
+    img = Image.open(path).convert("RGBA")
     arr = np.array(img, dtype=np.float32) / 255.0
 
     # Apply luminance formula
@@ -44,20 +50,31 @@ def load_image_as_luminance(path: str) -> np.ndarray:
         0.7152 * arr[:, :, 1] +
         0.0722 * arr[:, :, 2]
     )
-    return luminance
+    
+    # Apply alpha channel with background blending
+    alpha = arr[:, :, 3]
+    return luminance * alpha + background_value * (1 - alpha)
 
 
-def load_image(path: str) -> tuple[np.ndarray, np.ndarray]:
+def load_image(path: str, background_value: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
     """
     Load an image and return both luminance and RGB arrays.
+    
+    Args:
+        path: Path to image file.
+        background_value: Value to use for transparent pixels (0.0-1.0).
 
     Returns:
         Tuple of (luminance, rgb) where:
         - luminance: shape (height, width), values 0.0-1.0
         - rgb: shape (height, width, 3), values 0.0-1.0
     """
-    img = Image.open(path).convert("RGB")
-    rgb = np.array(img, dtype=np.float32) / 255.0
+    img = Image.open(path).convert("RGBA")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    
+    # Split channels
+    rgb = arr[:, :, :3]
+    alpha = arr[:, :, 3]
 
     # Calculate luminance
     luminance = (
@@ -65,6 +82,16 @@ def load_image(path: str) -> tuple[np.ndarray, np.ndarray]:
         0.7152 * rgb[:, :, 1] +
         0.0722 * rgb[:, :, 2]
     )
+    
+    # Apply alpha to luminance with background blending
+    luminance = luminance * alpha + background_value * (1 - alpha)
+    
+    # For RGB, blend with background color (assuming grayscale background)
+    # Broadcast alpha and background across RGB channels
+    bg_rgb = background_value  # Since it's grayscale
+    alpha_expanded = alpha[:, :, np.newaxis]
+    rgb = rgb * alpha_expanded + bg_rgb * (1 - alpha_expanded)
+    
     return luminance, rgb
 
 
@@ -346,11 +373,18 @@ def render_file_to_ascii(
     if config is None:
         config = RenderConfig()
 
+    # Determine background value for transparency
+    # If inverting (white background mode), transparency should be white (1.0)
+    # so that when inverted it becomes black (0.0) -> space
+    # If not inverting (black background mode), transparency should be black (0.0)
+    # so that it stays black (0.0) -> space
+    bg_value = 1.0 if config.invert else 0.0
+
     if config.color:
         # Load both luminance and RGB for colored output
-        luminance, rgb = load_image(path)
+        luminance, rgb = load_image(path, background_value=bg_value)
         return render_to_ascii(luminance, config, rgb=rgb)
     else:
         # Just load luminance for plain output
-        image = load_image_as_luminance(path)
-        return render_to_ascii(image, config)
+        luminance = load_image_as_luminance(path, background_value=bg_value)
+        return render_to_ascii(luminance, config)
